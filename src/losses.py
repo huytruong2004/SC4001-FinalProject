@@ -29,7 +29,7 @@ def attn_kl_loss(
     Returns a scalar tensor. Autograd flows through `attn` only — the mask is
     treated as a target distribution (no gradient needed).
     """
-    B, N2 = attn.shape
+    _, N2 = attn.shape
     side = int(round(N2 ** 0.5))
     assert side * side == N2, f"attn length {N2} is not a perfect square"
 
@@ -42,13 +42,14 @@ def attn_kl_loss(
     # Normalize to probability distributions (only over valid samples).
     p_mask = m_down[valid] / m_sum[valid].unsqueeze(1).clamp(min=1e-8)
 
-    # Normalize attention (it may not sum to 1 exactly if we averaged over heads/layers).
-    a = attn[valid]
+    # Upcast to fp32 so the log floor below is meaningful under AMP/fp16 callers.
+    a = attn[valid].float()
     a = a / a.sum(dim=1, keepdim=True).clamp(min=1e-8)
 
     # KL(p_mask || p_attn) = sum p_mask * (log p_mask - log p_attn).
-    # Use F.kl_div which computes sum target * (log target - input) when
-    # input=log p, target=p, reduction='batchmean'.
+    # Use F.kl_div: input=log p_attn, target=p_mask, reduction='batchmean'.
+    # Note: 'batchmean' divides by the filtered (valid) batch size, not B.
+    # This keeps per-sample gradient magnitude stable when a few masks are empty.
     log_a = (a + 1e-12).log()
     kl = F.kl_div(log_a, p_mask, reduction="batchmean")
     return kl
