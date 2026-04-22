@@ -238,7 +238,7 @@ Everything else is a pure definition cell and is safe to exec.
 
 ### Test-file edits
 
-Each of the six test files replaces `from src.X import Y` with:
+Each of the five test files (`test_bootstrap.py`, `test_data.py`, `test_eval.py`, `test_losses.py`, `test_maskmix.py`) replaces `from src.X import Y` with:
 
 ```python
 from tests._nb_import import nb
@@ -302,7 +302,7 @@ configs/                   # base.yaml + A1..A5 + B_k1/k5 x baseline/ours + D_li
 Files to edit:
 - `notebooks/flowers102_experiments.ipynb` (rebuilt cell by cell)
 - `tests/_nb_import.py` (new)
-- `tests/test_data.py`, `test_maskmix.py`, `test_losses.py`, `test_model.py`, `test_eval.py`, `test_bootstrap.py` (import rewrite only)
+- `tests/test_data.py`, `test_maskmix.py`, `test_losses.py`, `test_eval.py`, `test_bootstrap.py` (import rewrite only)
 - `README.md` (reflect single-notebook workflow)
 
 Files untouched: `docs/`, `figures/`, `results/`, `pytest.ini`, `requirements.txt`, `CLAUDE.md`.
@@ -313,7 +313,7 @@ Four commits on `main`, each self-contained and individually revertable. No `Co-
 
 1. **`chore: add tests/_nb_import.py shim`**. Shim only. Tests still pass against `src/`.
 2. **`refactor: consolidate pipeline into single notebook`**. Rebuild the notebook (28 cells) via `NotebookEdit`. No deletions yet. Notebook committed unrun.
-3. **`refactor: rewrite tests to import from notebook`**. Rewrite six test files. `pytest` must pass 23/23 against the notebook. `src/` still present but unreferenced.
+3. **`refactor: rewrite tests to import from notebook`**. Rewrite five test files. `pytest` must pass 23/23 against the notebook. `src/` still present but unreferenced.
 4. **`chore: remove obsolete src/, scripts/, configs/` + `docs: README single-notebook workflow`**. Deletions plus README update.
 
 Rationale: after commit 2 the notebook runs but tests still hit `src/`. After commit 3 tests hit the notebook but `src/` is dead weight. After commit 4 the repo is clean. Each intermediate state is runnable.
