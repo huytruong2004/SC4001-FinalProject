@@ -1,13 +1,14 @@
 """MaskMix: ground-truth-mask-conditioned CutMix variant.
 
 Given a batch of (x, m, y), for each sample i with probability `prob`,
-pick another sample j and composite the foreground of j (mask m_j) onto
-the background of i:
+pick another sample j and composite the foreground of j (thresholded at 0.5)
+onto the background of i:
 
-    x_mix[i] = m_j ⊙ x_j + (1 - m_j) ⊙ x_i
-    y_mix[i] = y_j                               (hard label)
+    x_mix[i] = x_j            where m_j > 0.5
+    x_mix[i] = x_i            elsewhere
+    y_mix[i] = y_j            (hard label; no interpolation)
 
-The label is the foreground source's label — no interpolation.
+If fewer than 2 samples are provided, the input is returned unchanged.
 """
 from __future__ import annotations
 
@@ -26,8 +27,12 @@ def maskmix_batch(
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Apply MaskMix to a batch. Returns (x_mix, y_mix) on the same device/dtype as x."""
     B = x.size(0)
+    if B < 2:
+        return x.clone(), y.clone()
+
     device = x.device
 
+    # CPU-side generator keeps determinism independent of device RNG quirks.
     gen = torch.Generator(device="cpu")
     if seed is not None:
         gen.manual_seed(seed)
@@ -50,12 +55,10 @@ def maskmix_batch(
     m_src = m[src]      # (B, 1, H, W)
     y_src = y[src]      # (B,)
 
-    # Composite per-sample.
-    x_mix = torch.where(m_src > 0.5, x_src, x)
+    # Single-pass composite: paste x_src only where apply_mask AND m_src > 0.5.
+    apply_img = apply_mask.view(B, 1, 1, 1)
+    use_src = apply_img & (m_src > 0.5)
+    x_mix = torch.where(use_src, x_src, x)
     y_mix = torch.where(apply_mask, y_src, y)
-
-    # Where apply_mask is False, restore original x.
-    apply_mask_img = apply_mask.view(B, 1, 1, 1)
-    x_mix = torch.where(apply_mask_img, x_mix, x)
 
     return x_mix, y_mix

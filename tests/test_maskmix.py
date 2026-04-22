@@ -58,3 +58,24 @@ def test_maskmix_composition_is_correct():
     assert torch.allclose(x_mix[0, :, :, :2], torch.full_like(x_mix[0, :, :, :2], 5.0))
     assert torch.allclose(x_mix[0, :, :, 2:], torch.full_like(x_mix[0, :, :, 2:], 1.0))
     assert y_mix[0].item() == 200  # label of the foreground source
+
+
+def test_maskmix_batch_size_one_returns_identity():
+    """With B<2 there is no valid cross-sample source; return identity."""
+    x = torch.randn(1, 3, 8, 8)
+    m = torch.randint(0, 2, (1, 1, 8, 8)).float()
+    y = torch.tensor([7])
+    x_mix, y_mix = maskmix_batch(x, m, y, prob=1.0, seed=0)
+    assert torch.allclose(x_mix, x)
+    assert torch.equal(y_mix, y)
+
+
+def test_maskmix_preserves_half_precision():
+    """AMP path: fp16 input should yield fp16 output without casting."""
+    B, C, H, W = 4, 3, 8, 8
+    x = torch.randn(B, C, H, W).half()
+    m = torch.randint(0, 2, (B, 1, H, W)).float()  # masks stay fp32
+    y = torch.arange(B)
+    x_mix, y_mix = maskmix_batch(x, m, y, prob=1.0, seed=0)
+    assert x_mix.dtype == torch.float16
+    assert y_mix.dtype == y.dtype
