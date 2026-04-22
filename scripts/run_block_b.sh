@@ -6,6 +6,7 @@ CKPT=${SC4001_CKPT:-/workspace/checkpoints}
 REPO=${SC4001_REPO:-/workspace/SC4001-FinalProject}
 RESULTS="$REPO/results/runs.jsonl"
 
+cd "$REPO"
 mkdir -p "$(dirname "$RESULTS")" "$CKPT"
 
 for cfg in B_k1_baseline B_k1_ours B_k5_baseline B_k5_ours; do

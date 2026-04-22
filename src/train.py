@@ -224,8 +224,9 @@ def train_one_config(
             f.flush()
 
     # Final test with best checkpoint ------------------------------------
-    state = torch.load(best_ckpt, map_location=device)
-    model.load_state_dict(state["model"])
+    state = torch.load(best_ckpt, map_location=device, weights_only=False)
+    unwrapped = getattr(model, "_orig_mod", model)
+    unwrapped.load_state_dict(state["model"])
     from src.eval import evaluate_full
     test_metrics = evaluate_full(model, test_loader, device, num_classes=102)
     result = {"run": run_name, "best_val_top1": best_val, **test_metrics,
