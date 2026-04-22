@@ -85,6 +85,8 @@ def train_one_config(
     device = "cuda" if torch.cuda.is_available() else "cpu"
     if device == "cpu":
         print("WARNING: no CUDA detected; training on CPU will be very slow.")
+    if device == "cuda":
+        print(f"flash_sdp: {torch.backends.cuda.flash_sdp_enabled()}")
 
     # Data ---------------------------------------------------------------
     train_ds = Flowers102WithMasks(
