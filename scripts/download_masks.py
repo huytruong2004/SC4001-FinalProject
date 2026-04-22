@@ -12,8 +12,19 @@ import tarfile
 import urllib.request
 from pathlib import Path
 
+from tqdm.auto import tqdm
+
 URL = "https://www.robots.ox.ac.uk/~vgg/data/flowers/102/102segmentations.tgz"
 EXPECTED_COUNT = 8189
+
+
+def _download_with_progress(url: str, dest: Path) -> None:
+    with tqdm(unit="B", unit_scale=True, unit_divisor=1024, miniters=1, desc=dest.name) as bar:
+        def hook(blocks: int, block_size: int, total_size: int) -> None:
+            if total_size > 0 and bar.total is None:
+                bar.total = total_size
+            bar.update(blocks * block_size - bar.n)
+        urllib.request.urlretrieve(url, dest, reporthook=hook)
 
 
 def download(data_dir: Path) -> None:
@@ -26,12 +37,14 @@ def download(data_dir: Path) -> None:
     tgz_path = data_dir / "102segmentations.tgz"
     if not tgz_path.exists():
         print(f"Downloading {URL} -> {tgz_path}")
-        urllib.request.urlretrieve(URL, tgz_path)
+        _download_with_progress(URL, tgz_path)
 
     print(f"Extracting {tgz_path} -> {data_dir}")
     try:
         with tarfile.open(tgz_path) as tf:
-            tf.extractall(data_dir, filter="data")
+            members = tf.getmembers()
+            for member in tqdm(members, desc="extracting", unit="file"):
+                tf.extract(member, data_dir, filter="data")
     except (tarfile.ReadError, EOFError) as e:
         tgz_path.unlink(missing_ok=True)
         raise RuntimeError(
