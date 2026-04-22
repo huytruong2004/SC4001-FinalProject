@@ -27,7 +27,7 @@ def evaluate_full(model, loader, device, num_classes: int) -> dict[str, float]:
     for x, _m, y in loader:
         x = x.to(device, non_blocking=True)
         y = y.to(device, non_blocking=True)
-        with torch.cuda.amp.autocast(enabled=(device == "cuda")):
+        with torch.autocast("cuda", dtype=torch.bfloat16, enabled=(device == "cuda")):
             logits, _ = model(x, return_attn=False)
         all_preds.append(logits.argmax(1).cpu())
         all_labels.append(y.cpu())

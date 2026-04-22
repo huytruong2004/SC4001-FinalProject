@@ -24,6 +24,8 @@ from src.maskmix import maskmix_batch
 from src.model import VPTDeepViT
 from src.utils import log_jsonl, seed_everything
 
+torch.set_float32_matmul_precision("high")
+
 
 def _load_config(path: str | Path) -> dict[str, Any]:
     with open(path) as f:
@@ -123,10 +125,11 @@ def train_one_config(
         )
         trainable = [model.prompts] + list(model.head.parameters())
     model = model.to(device)
+    if cfg.get("compile", False):
+        model = torch.compile(model, mode="max-autotune")
 
     optimizer = torch.optim.AdamW(trainable, lr=cfg["lr"], weight_decay=cfg.get("weight_decay", 1e-4))
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=cfg["epochs"])
-    scaler = torch.cuda.amp.GradScaler(enabled=(device == "cuda"))
 
     # Training -----------------------------------------------------------
     ckpt_dir = Path(checkpoint_dir) / run_name
@@ -149,7 +152,7 @@ def train_one_config(
                 x, y = _cutmix_batch(x, y, alpha=1.0, prob=cfg.get("mix_prob", 0.5),
                                      seed=seed * 1000 + step)
 
-            with torch.cuda.amp.autocast(enabled=(device == "cuda")):
+            with torch.autocast("cuda", dtype=torch.bfloat16, enabled=(device == "cuda")):
                 logits, attn = model(x, return_attn=cfg.get("attn_lambda", 0.0) > 0)
                 loss_ce = F.cross_entropy(logits, y)
                 loss = loss_ce
@@ -158,9 +161,8 @@ def train_one_config(
                     loss = loss + cfg["attn_lambda"] * loss_attn
 
             optimizer.zero_grad(set_to_none=True)
-            scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
+            loss.backward()
+            optimizer.step()
             running += loss.item() * x.size(0)
         scheduler.step()
 
@@ -171,7 +173,8 @@ def train_one_config(
                                  "val_top1": val_top1})
         if val_top1 > best_val:
             best_val = val_top1
-            torch.save({"model": model.state_dict(), "cfg": cfg, "epoch": epoch,
+            unwrapped = getattr(model, "_orig_mod", model)
+            torch.save({"model": unwrapped.state_dict(), "cfg": cfg, "epoch": epoch,
                         "val_top1": val_top1}, best_ckpt)
 
     # Final test with best checkpoint ------------------------------------
@@ -192,7 +195,7 @@ def _evaluate(model, loader, device) -> float:
         for x, _m, y in loader:
             x = x.to(device, non_blocking=True)
             y = y.to(device, non_blocking=True)
-            with torch.cuda.amp.autocast(enabled=(device == "cuda")):
+            with torch.autocast("cuda", dtype=torch.bfloat16, enabled=(device == "cuda")):
                 logits, _ = model(x, return_attn=False)
             correct += (logits.argmax(1) == y).sum().item()
             total += y.numel()
