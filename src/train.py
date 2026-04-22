@@ -9,6 +9,8 @@ Run from a notebook cell:
 """
 from __future__ import annotations
 
+import csv
+import time
 from pathlib import Path
 from typing import Any
 
@@ -139,8 +141,30 @@ def train_one_config(
     ckpt_dir.mkdir(parents=True, exist_ok=True)
     best_val = -1.0
     best_ckpt = ckpt_dir / "best.pt"
+    last_ckpt = ckpt_dir / "last.pt"
+    train_log_path = ckpt_dir / "train.log"
 
-    for epoch in range(cfg["epochs"]):
+    # Resume from last.pt if present --------------------------------------
+    start_epoch = 0
+    fresh_run = not last_ckpt.exists()
+    if last_ckpt.exists():
+        state = torch.load(last_ckpt, map_location=device, weights_only=False)
+        unwrapped = getattr(model, "_orig_mod", model)
+        unwrapped.load_state_dict(state["model"])
+        optimizer.load_state_dict(state["optimizer"])
+        scheduler.load_state_dict(state["scheduler"])
+        start_epoch = state["epoch"] + 1
+        best_val = state["best_val"]
+        print(f"resumed from {last_ckpt} at epoch {start_epoch}; best_val={best_val:.4f}")
+
+    # Write CSV header on fresh starts; append on resume.
+    if fresh_run:
+        with open(train_log_path, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["run", "epoch", "train_loss", "val_top1", "wall_time_s"])
+
+    for epoch in range(start_epoch, cfg["epochs"]):
+        epoch_start = time.perf_counter()
         model.train()
         running = 0.0
         for step, (x, m, y) in enumerate(tqdm(train_loader, desc=f"ep{epoch}")):
@@ -171,14 +195,33 @@ def train_one_config(
 
         # Val --------------------------------------------------------------
         val_top1 = _evaluate(model, val_loader, device)
+        train_loss = running / len(train_ds)
         log_jsonl(results_path, {"run": run_name, "epoch": epoch,
-                                 "train_loss": running / len(train_ds),
+                                 "train_loss": train_loss,
                                  "val_top1": val_top1})
         if val_top1 > best_val:
             best_val = val_top1
             unwrapped = getattr(model, "_orig_mod", model)
             torch.save({"model": unwrapped.state_dict(), "cfg": cfg, "epoch": epoch,
                         "val_top1": val_top1}, best_ckpt)
+
+        # last.pt checkpoint for resume ------------------------------------
+        unwrapped = getattr(model, "_orig_mod", model)
+        torch.save({
+            "model": unwrapped.state_dict(),
+            "optimizer": optimizer.state_dict(),
+            "scheduler": scheduler.state_dict(),
+            "epoch": epoch,
+            "best_val": best_val,
+            "cfg": cfg,
+        }, last_ckpt)
+
+        # Per-epoch CSV row ------------------------------------------------
+        wall_time_s = time.perf_counter() - epoch_start
+        with open(train_log_path, "a", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([run_name, epoch, train_loss, val_top1, wall_time_s])
+            f.flush()
 
     # Final test with best checkpoint ------------------------------------
     state = torch.load(best_ckpt, map_location=device)
@@ -203,3 +246,20 @@ def _evaluate(model, loader, device) -> float:
             correct += (logits.argmax(1) == y).sum().item()
             total += y.numel()
     return correct / max(total, 1)
+
+
+if __name__ == "__main__":
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--config", required=True)
+    ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--data-root", required=True)
+    ap.add_argument("--checkpoint-dir", required=True)
+    ap.add_argument("--results-path", required=True)
+    ap.add_argument("--run-name", default=None)
+    args = ap.parse_args()
+    train_one_config(
+        config_path=args.config, seed=args.seed,
+        data_root=args.data_root, checkpoint_dir=args.checkpoint_dir,
+        results_path=args.results_path, run_name=args.run_name,
+    )
