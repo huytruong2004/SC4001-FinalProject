@@ -141,8 +141,8 @@ def train_one_config(
             y = y.to(device, non_blocking=True)
 
             if cfg.get("augment") == "maskmix":
-                x, y = maskmix_batch(x, m, y, prob=cfg.get("mix_prob", 0.5),
-                                     seed=seed * 1000 + step)
+                x, m, y = maskmix_batch(x, m, y, prob=cfg.get("mix_prob", 0.5),
+                                        seed=seed * 1000 + step)
             elif cfg.get("augment") == "cutmix":
                 x, y = _cutmix_batch(x, y, alpha=1.0, prob=cfg.get("mix_prob", 0.5),
                                      seed=seed * 1000 + step)

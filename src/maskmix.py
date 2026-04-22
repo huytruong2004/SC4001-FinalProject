@@ -8,6 +8,12 @@ onto the background of i:
     x_mix[i] = x_i            elsewhere
     y_mix[i] = y_j            (hard label; no interpolation)
 
+The returned mask `m_mix` is remixed in lockstep with the composite image:
+for samples where MaskMix was applied, `m_mix[i] = m_j` (the source mask),
+otherwise `m_mix[i] = m[i]`. This keeps downstream consumers (in particular
+attention supervision via `attn_kl_loss`) seeing a mask that is consistent
+with the (possibly flipped) hard label.
+
 If fewer than 2 samples are provided, the input is returned unchanged.
 """
 from __future__ import annotations
@@ -24,11 +30,11 @@ def maskmix_batch(
     prob: float = 0.5,
     seed: Optional[int] = None,
     _force_source_index: Optional[torch.Tensor] = None,  # test hook
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """Apply MaskMix to a batch. Returns (x_mix, y_mix) on the same device/dtype as x."""
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Apply MaskMix to a batch. Returns (x_mix, m_mix, y_mix) on the same device/dtype as x."""
     B = x.size(0)
     if B < 2:
-        return x.clone(), y.clone()
+        return x.clone(), m.clone(), y.clone()
 
     device = x.device
 
@@ -59,6 +65,7 @@ def maskmix_batch(
     apply_img = apply_mask.view(B, 1, 1, 1)
     use_src = apply_img & (m_src > 0.5)
     x_mix = torch.where(use_src, x_src, x)
+    m_mix = torch.where(apply_img, m_src, m)
     y_mix = torch.where(apply_mask, y_src, y)
 
-    return x_mix, y_mix
+    return x_mix, m_mix, y_mix
