@@ -12,7 +12,6 @@ where the pixel is foreground. We binarise: mask == 1 iff NOT blue.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Callable
 
 import numpy as np
 import torch
@@ -60,8 +59,8 @@ class Flowers102WithMasks(Dataset):
         self.image_size = image_size
         self.train_augment = train_augment
 
-        # torchvision stores the 1-based dataset-wide image ids in self._ds._image_files;
-        # each path ends in .../image_XXXXX.jpg. Parse ids for mask lookup.
+        # NOTE: _image_files / _labels are torchvision Flowers102 private attrs
+        # (verified on torchvision 0.17). If upgrading torchvision, re-check.
         self._image_ids: list[int] = []
         for p in self._ds._image_files:
             stem = Path(p).stem  # "image_06734"
@@ -69,6 +68,27 @@ class Flowers102WithMasks(Dataset):
 
         if subsample_k is not None:
             self._subsample(subsample_k, subsample_seed)
+
+        # Precompute transform pipelines (avoid per-sample allocation churn).
+        resize_short = int(self.image_size * 256 / 224)  # standard ImageNet eval preprocess
+        self._image_resize = T.Compose([
+            T.Resize(resize_short),
+            T.CenterCrop(self.image_size),
+        ])
+        # NEAREST on masks keeps the binary {0,1} semantics at boundaries.
+        self._mask_resize = T.Compose([
+            T.Resize(resize_short, interpolation=T.InterpolationMode.NEAREST),
+            T.CenterCrop(self.image_size),
+        ])
+        self._normalize = T.Compose([
+            T.ToTensor(),
+            T.Normalize(self.IMAGENET_MEAN, self.IMAGENET_STD),
+        ])
+        self._train_photo = T.Compose([
+            T.RandAugment(num_ops=2, magnitude=9),
+            T.ToTensor(),
+            T.Normalize(self.IMAGENET_MEAN, self.IMAGENET_STD),
+        ])
 
     def _subsample(self, k: int, seed: int) -> None:
         """Keep only k samples per class (deterministic by (class, seed))."""
@@ -97,14 +117,9 @@ class Flowers102WithMasks(Dataset):
         pil_img, label = self._ds[i]
         image_id = self._image_ids[i]
 
-        # Resize + center-crop both image and mask to image_size (preserves alignment).
-        base_resize = T.Compose([
-            T.Resize(int(self.image_size * 256 / 224)),
-            T.CenterCrop(self.image_size),
-        ])
-        pil_img = base_resize(pil_img)
+        pil_img = self._image_resize(pil_img)
         mask_np = self._load_mask(image_id)
-        mask_pil = base_resize(Image.fromarray(mask_np * 255).convert("L"))
+        mask_pil = self._mask_resize(Image.fromarray(mask_np * 255).convert("L"))
 
         if self.train_augment:
             # Random horizontal flip applied jointly.
@@ -112,12 +127,9 @@ class Flowers102WithMasks(Dataset):
                 pil_img = pil_img.transpose(Image.FLIP_LEFT_RIGHT)
                 mask_pil = mask_pil.transpose(Image.FLIP_LEFT_RIGHT)
             # Photometric aug on image only.
-            photo = T.Compose([T.RandAugment(num_ops=2, magnitude=9), T.ToTensor(),
-                               T.Normalize(self.IMAGENET_MEAN, self.IMAGENET_STD)])
-            img_tensor = photo(pil_img)
+            img_tensor = self._train_photo(pil_img)
         else:
-            img_tensor = T.Compose([T.ToTensor(),
-                                    T.Normalize(self.IMAGENET_MEAN, self.IMAGENET_STD)])(pil_img)
+            img_tensor = self._normalize(pil_img)
 
         mask_tensor = torch.from_numpy(np.array(mask_pil, dtype=np.uint8)).float().unsqueeze(0) / 255.0
         return img_tensor, mask_tensor, int(label)
