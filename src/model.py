@@ -51,6 +51,7 @@ class VPTDeepViT(nn.Module):
         # head is always trainable
 
         self._attn_scores: list[torch.Tensor] = []
+        self._capture_enabled: bool = False
         self._install_attn_hooks()
 
     def _install_attn_hooks(self) -> None:
@@ -59,6 +60,9 @@ class VPTDeepViT(nn.Module):
 
         timm's Attention module does `qkv = self.qkv(x)` then reshapes. We hook
         on qkv's output to snatch q, k, then compute our own attention in parallel.
+        The hook short-circuits unless `self._capture_enabled` is True.
+        It slices the [CLS]->patch row right here to avoid holding the full
+        (B, H, N+197, N+197) tensor in memory.
         """
         self._hook_handles = []
         blocks = self.backbone.blocks
@@ -70,15 +74,21 @@ class VPTDeepViT(nn.Module):
 
             def make_hook(num_heads=num_heads, head_dim=head_dim, scale=scale):
                 def hook(module, inp, out):
+                    if not self._capture_enabled:
+                        return
                     # out is the qkv output: (B, N, 3 * num_heads * head_dim).
                     B, N, _ = out.shape
                     qkv = out.reshape(B, N, 3, num_heads, head_dim).permute(2, 0, 3, 1, 4)
                     q, k = qkv[0], qkv[1]  # (B, H, N, D)
                     attn = (q @ k.transpose(-2, -1)) * scale
                     attn = attn.softmax(dim=-1)  # (B, H, N, N)
-                    # CLS is at position num_prompts (prompts are prepended); here
-                    # we also need to handle the non-prompt path. We'll slice in forward.
-                    self._attn_scores.append(attn)
+                    # Slice [CLS]->patch now to avoid keeping the full map.
+                    # Sequence layout: [prompts(N_p)] [CLS] [patches(196)].
+                    cls_idx = self.num_prompts
+                    patch_start = self.num_prompts + 1
+                    patch_end = self.num_prompts + 197
+                    cls_to_patch = attn[:, :, cls_idx, patch_start:patch_end]  # (B, H, 196)
+                    self._attn_scores.append(cls_to_patch)
                 return hook
 
             self._hook_handles.append(attn_mod.qkv.register_forward_hook(make_hook()))
@@ -90,6 +100,7 @@ class VPTDeepViT(nn.Module):
     def forward(self, x: torch.Tensor, return_attn: bool = False) -> tuple[torch.Tensor, Optional[torch.Tensor]]:
         """Returns (logits, attn_flat) where attn_flat is (B, 196) or None."""
         self._attn_scores.clear()
+        self._capture_enabled = bool(return_attn)
 
         B = x.size(0)
         # Patch + cls + pos
@@ -112,19 +123,11 @@ class VPTDeepViT(nn.Module):
 
         attn_flat = None
         if return_attn and self._attn_scores:
-            # Each stored attn has shape (B, H, N+197, N+197) — with prompts prepended
-            # at the block input. CLS is at column index num_prompts inside the
-            # post-prepend sequence (after the N prompts), and patches occupy
-            # columns [num_prompts+1 : num_prompts+197].
-            stacks = []
-            for attn in self._attn_scores:
-                # Average over heads.
-                a = attn.mean(dim=1)  # (B, N+197, N+197)
-                cls_idx = self.num_prompts  # CLS is right after prompts
-                patch_start = self.num_prompts + 1
-                patch_end = self.num_prompts + 197
-                cls_to_patch = a[:, cls_idx, patch_start:patch_end]  # (B, 196)
-                stacks.append(cls_to_patch)
-            attn_flat = torch.stack(stacks, dim=0).mean(dim=0)  # (B, 196)
+            # Each captured tensor is already (B, H, 196). Mean over heads, then
+            # mean across the captured layers.
+            per_layer = [a.mean(dim=1) for a in self._attn_scores]  # list of (B, 196)
+            attn_flat = torch.stack(per_layer, dim=0).mean(dim=0)   # (B, 196)
 
+        # Reset so subsequent forwards without return_attn don't waste compute.
+        self._capture_enabled = False
         return logits, attn_flat
