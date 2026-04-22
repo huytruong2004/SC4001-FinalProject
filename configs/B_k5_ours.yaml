@@ -1,0 +1,4 @@
+_base_: base.yaml
+subsample_k: 5
+augment: maskmix
+attn_lambda: 0.3

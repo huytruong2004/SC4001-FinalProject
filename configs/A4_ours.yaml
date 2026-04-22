@@ -1,0 +1,3 @@
+_base_: base.yaml
+augment: maskmix
+attn_lambda: 0.3

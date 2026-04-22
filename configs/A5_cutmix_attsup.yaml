@@ -1,0 +1,3 @@
+_base_: base.yaml
+augment: cutmix
+attn_lambda: 0.3

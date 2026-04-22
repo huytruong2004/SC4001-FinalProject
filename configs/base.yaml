@@ -1,0 +1,14 @@
+image_size: 224
+batch_size: 32
+num_workers: 2
+epochs: 50
+lr: 1.0e-3
+weight_decay: 1.0e-4
+num_prompts: 10
+capture_last_layers: 2
+adaptation: vpt_deep
+augment: none                # one of: none | maskmix | cutmix
+mix_prob: 0.5
+attn_lambda: 0.0
+subsample_k: null            # if set, keep k images per class
+subsample_seed: 0

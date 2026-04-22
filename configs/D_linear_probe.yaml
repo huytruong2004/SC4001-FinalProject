@@ -1,0 +1,4 @@
+_base_: base.yaml
+adaptation: linear_probe
+epochs: 30
+lr: 1.0e-2
