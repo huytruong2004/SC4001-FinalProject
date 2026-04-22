@@ -103,11 +103,14 @@ def train_one_config(
                                   image_size=cfg["image_size"], train_augment=False)
 
     train_loader = DataLoader(train_ds, batch_size=cfg["batch_size"], shuffle=True,
-                              num_workers=cfg.get("num_workers", 2), pin_memory=True, drop_last=True)
+                              num_workers=cfg.get("num_workers", 2), pin_memory=True,
+                              persistent_workers=True, drop_last=True)
     val_loader = DataLoader(val_ds, batch_size=cfg["batch_size"], shuffle=False,
-                            num_workers=cfg.get("num_workers", 2), pin_memory=True)
+                            num_workers=cfg.get("num_workers", 2), pin_memory=True,
+                            persistent_workers=True)
     test_loader = DataLoader(test_ds, batch_size=cfg["batch_size"], shuffle=False,
-                             num_workers=cfg.get("num_workers", 2), pin_memory=True)
+                             num_workers=cfg.get("num_workers", 2), pin_memory=True,
+                             persistent_workers=True)
 
     # Model --------------------------------------------------------------
     if cfg.get("adaptation") == "linear_probe":

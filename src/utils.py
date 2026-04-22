@@ -16,6 +16,7 @@ def seed_everything(seed: int) -> None:
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.benchmark = True
     os.environ["PYTHONHASHSEED"] = str(seed)
 
 

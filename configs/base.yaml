@@ -1,6 +1,6 @@
 image_size: 224
-batch_size: 32
-num_workers: 2
+batch_size: 128
+num_workers: 8
 epochs: 50
 lr: 1.0e-3
 weight_decay: 1.0e-4
