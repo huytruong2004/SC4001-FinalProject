@@ -29,8 +29,14 @@ def download(data_dir: Path) -> None:
         urllib.request.urlretrieve(URL, tgz_path)
 
     print(f"Extracting {tgz_path} -> {data_dir}")
-    with tarfile.open(tgz_path) as tf:
-        tf.extractall(data_dir)
+    try:
+        with tarfile.open(tgz_path) as tf:
+            tf.extractall(data_dir, filter="data")
+    except (tarfile.ReadError, EOFError) as e:
+        tgz_path.unlink(missing_ok=True)
+        raise RuntimeError(
+            f"Corrupt archive at {tgz_path} (removed). Re-run to re-download."
+        ) from e
 
     count = len(list(mask_dir.glob("segmim_*.jpg")))
     if count != EXPECTED_COUNT:
