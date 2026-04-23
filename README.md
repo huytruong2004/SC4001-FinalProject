@@ -15,7 +15,7 @@ two mask-guided components plus a paste-shape control:
    isolates the effect of the pixel-accurate mask region from the act of
    mixing or the auxiliary loss.
 
-The full write-up is at [`docs/sc4001-report.pdf`](docs/sc4001-report.pdf).
+The full write-up is at [`report/sc4001-report.pdf`](report/sc4001-report.pdf).
 
 ## Headline finding
 
