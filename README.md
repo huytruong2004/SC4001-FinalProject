@@ -42,59 +42,13 @@ The pixel-accurate paste shape is the harmful ingredient. The gap widens
 rather than narrows under data scarcity: at `k = 1` image per class,
 baseline 64.99% vs A4 57.20%. See the report for the mechanism discussion.
 
-## Setup
+## Reproducing the training runs (GPU)
 
-Three supported environments. The notebook and CLI both read three env vars
-(`SC4001_REPO`, `SC4001_DATA`, `SC4001_CKPT`) so the same code runs anywhere.
+Training needs a CUDA GPU. All committed results were produced on one
+NVIDIA H100 NVL via vast.ai in bf16 at batch size 128, total wall-clock
+about two hours for all four blocks.
 
-### 1. Local (CPU, any IDE)
-
-For editing `src/`, running unit tests, and regenerating figures from the
-committed `results/runs.jsonl`.
-
-```bash
-pip install -r requirements.txt
-pytest tests/ -v
-python -m src.analyze \
-  --runs-jsonl results/runs.jsonl \
-  --results-dir results \
-  --figures-dir figures
-```
-
-`src.analyze` runs purely from `runs.jsonl` and does not need trained
-checkpoints. It regenerates `headline_table.csv`, `significance.{csv,txt}`,
-and `figures/learning_curves.png`. The optional per-example paired
-bootstrap and `qualitative_attention.png` are produced only when
-`--checkpoint-dir` is passed and the required `best.pt` files are present.
-
-You can also launch Jupyter locally and open `notebooks/flowers102_experiments.ipynb`.
-With no env vars set, Cell 1 falls back to the current working directory
-(or its parent if launched from `notebooks/`), so `import src...` works
-out of the box.
-
-### 2. Colab ephemeral
-
-Clone and install inside a fresh Colab VM:
-
-```bash
-!git clone https://github.com/huytruong2004/SC4001-FinalProject.git
-%cd SC4001-FinalProject
-!pip install -r requirements.txt
-```
-
-Cell 1 no longer mounts Drive automatically. The CWD fallback handles the
-repo root. If you want persistent data or checkpoints, mount Drive yourself
-and export env vars before launching the notebook kernel, e.g.:
-
-```python
-import os
-os.environ["SC4001_DATA"] = "/content/drive/MyDrive/sc4001_flowers102/data/flowers-102"
-os.environ["SC4001_CKPT"] = "/content/drive/MyDrive/sc4001_flowers102/checkpoints"
-```
-
-### 3. vast.ai or remote SSH (H100 target)
-
-After `ssh` into the box:
+### One-time setup on the GPU box
 
 ```bash
 git clone https://github.com/huytruong2004/SC4001-FinalProject.git /workspace/SC4001-FinalProject
@@ -104,9 +58,31 @@ pip install -r requirements.txt
 export SC4001_REPO=/workspace/SC4001-FinalProject
 export SC4001_DATA=/workspace/data/flowers-102
 export SC4001_CKPT=/workspace/checkpoints
+
+python scripts/download_masks.py --data-dir "$SC4001_DATA"
 ```
 
-Run a single config:
+The `download_masks.py` step pulls `102segmentations.tgz` (~450 MB) from
+the VGG host once and extracts the 8189 per-image trimaps into
+`$SC4001_DATA/segmim/`. It is idempotent. The torchvision `Flowers102`
+loader downloads the images and labels on first use of the dataset, so
+no separate image-download step is needed.
+
+### Run the four experiment blocks
+
+Each `run_block_*.sh` loops `python -m src.train` over its configs and
+seeds and appends one `"final": true` record per run to
+`results/runs.jsonl`.
+
+```bash
+bash scripts/run_block_d.sh    # linear-probe floor, 1 run
+bash scripts/run_block_a.sh    # mechanistic ablation, 12 runs (A1–A4 × 3 seeds)
+bash scripts/run_block_b.sh    # k-curve, 4 runs (k=1,5 × {baseline, ours})
+bash scripts/run_block_c.sh    # paste-shape control, 3 runs (A5 × 3 seeds)
+bash scripts/run_analysis.sh   # aggregate CSVs + figures
+```
+
+Or invoke a single config directly:
 
 ```bash
 python -m src.train \
@@ -117,22 +93,44 @@ python -m src.train \
   --results-path "$SC4001_REPO/results/runs.jsonl"
 ```
 
-Or invoke the shell runners in `scripts/` to loop over the full blocks:
+### Gotcha: non-interactive SSH does not activate the venv
+
+`ssh host 'nohup bash scripts/run_block_a.sh ...'` does not source
+`.bashrc`, so `python` resolves to the system binary and the training
+import will fail. Prepend the venv explicitly:
 
 ```bash
-bash scripts/run_block_d.sh    # linear-probe floor, 1 run
-bash scripts/run_block_a.sh    # mechanistic ablation, 12 runs (A1–A4 × 3 seeds)
-bash scripts/run_block_b.sh    # k-curve, 4 runs (k=1,5 × {baseline, ours})
-bash scripts/run_block_c.sh    # paste-shape control, 3 runs (A5 × 3 seeds)
-bash scripts/run_analysis.sh   # aggregate + figures
+ssh host 'cd /workspace/SC4001-FinalProject && \
+  PATH=/venv/main/bin:$PATH nohup bash scripts/run_block_a.sh > run.log 2>&1 &'
 ```
 
-Non-interactive `ssh 'nohup bash ...'` invocations do not source `.bashrc`
-and will miss the venv's PATH; prepend the venv explicitly, e.g.
-`PATH=/venv/main/bin:$PATH nohup bash scripts/run_block_a.sh ...`.
+## Regenerating analysis locally (no GPU)
 
-Full H100 NVL wall-clock for all four blocks plus analysis was about two
-hours on bf16 at batch size 128.
+All aggregate tables, significance tests, and the learning-curves figure
+can be rebuilt on CPU from the committed `results/runs.jsonl`. No
+checkpoints required.
+
+```bash
+pip install -r requirements.txt
+pytest tests/ -v
+python -m src.analyze \
+  --runs-jsonl results/runs.jsonl \
+  --results-dir results \
+  --figures-dir figures
+python scripts/make_k_curve.py    # rebuilds figures/k_curve.png
+```
+
+The optional `--checkpoint-dir` flag unlocks two further outputs that
+need trained weights:
+
+- `results/significance_A4_vs_A1_bootstrap.txt`: pre-registered
+  per-example paired-bootstrap p-value on the seed-0 A1 vs A4 pair.
+- `figures/qualitative_attention.png`: A1 vs A4 attention maps on three
+  confusion-pair classes.
+
+The committed `figures/qualitative_attention.png` was rendered from
+checkpoints that no longer exist (the training instance was destroyed),
+so this flag will only produce new output if you re-train first.
 
 ## Outputs
 
@@ -146,12 +144,21 @@ Committed artifacts (regenerable from `results/runs.jsonl`):
   t-test for the four contrasts carrying the analysis.
 - `figures/learning_curves.png` — val top-1 vs epoch, full and zoomed
   panels; A2 and A4 curves sit visibly below A1/A3/A5.
+- `figures/k_curve.png` — test top-1 at k ∈ {1, 5, 10} for A1 vs A4.
 - `figures/qualitative_attention.png` — A1 vs A4 attention maps on three
   confusion-pair classes from Nilsback & Zisserman 2008.
 - `results/run_logs/run_block_{a,b,b_k1_fix,c,d}.log` — per-block
   training stdout for audit and the appendix.
 - `results/runs.jsonl.bak` — pre-`drop_last`-fix audit trail preserving
   the broken k=1 rows from the first Block-B attempt.
+
+## Notebook (legacy)
+
+`notebooks/flowers102_experiments.ipynb` was the early-prototyping entry
+point on a Colab T4 kernel. The committed results were produced by the
+shell runners above on an H100 NVL box, not by the notebook. The
+notebook still works if you prefer cell-by-cell exploration, but it is
+not the canonical reproduction path.
 
 ## Tests
 
