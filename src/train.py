@@ -55,7 +55,7 @@ def _cutmix_batch(x: torch.Tensor, y: torch.Tensor, alpha: float = 1.0,
     gen = torch.Generator(device="cpu")
     if seed is not None:
         gen.manual_seed(seed)
-    apply = torch.rand(B, generator=gen) < prob
+    apply = (torch.rand(B, generator=gen) < prob).to(x.device)
     lam = torch.distributions.Beta(alpha, alpha).sample((1,)).item()
     cut_w = int(W * (1 - lam) ** 0.5)
     cut_h = int(H * (1 - lam) ** 0.5)
@@ -63,7 +63,7 @@ def _cutmix_batch(x: torch.Tensor, y: torch.Tensor, alpha: float = 1.0,
     cy = torch.randint(0, H, (1,), generator=gen).item()
     x1, x2 = max(cx - cut_w // 2, 0), min(cx + cut_w // 2, W)
     y1, y2 = max(cy - cut_h // 2, 0), min(cy + cut_h // 2, H)
-    src = torch.randperm(B, generator=gen)
+    src = torch.randperm(B, generator=gen).to(x.device)
     x_mix = x.clone()
     x_mix[:, :, y1:y2, x1:x2] = x[src][:, :, y1:y2, x1:x2]
     # Hard label: if pasted area > 50% of image, use src label; else original.
@@ -104,9 +104,12 @@ def train_one_config(
     test_ds = Flowers102WithMasks(root=data_root, split="test",
                                   image_size=cfg["image_size"], train_augment=False)
 
+    # drop_last only when we actually have enough samples for a full batch;
+    # k-shot subsamples (e.g. k=1 → 102 imgs with bs=128) would otherwise yield 0 batches/epoch.
+    drop_last = len(train_ds) >= cfg["batch_size"]
     train_loader = DataLoader(train_ds, batch_size=cfg["batch_size"], shuffle=True,
                               num_workers=cfg.get("num_workers", 2), pin_memory=True,
-                              persistent_workers=True, drop_last=True)
+                              persistent_workers=True, drop_last=drop_last)
     val_loader = DataLoader(val_ds, batch_size=cfg["batch_size"], shuffle=False,
                             num_workers=cfg.get("num_workers", 2), pin_memory=True,
                             persistent_workers=True)
