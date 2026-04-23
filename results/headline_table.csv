@@ -1,0 +1,5 @@
+config,top1_mean,top1_std,per_class_mean,per_class_std
+A1 baseline,0.9888,0.0023,0.9891,0.0024
+A2 +MaskMix,0.9796,0.0039,0.9799,0.0048
+A3 +AttSup,0.9862,0.0025,0.9866,0.0017
+A4 ours,0.9787,0.0029,0.9796,0.0044

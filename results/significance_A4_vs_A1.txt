@@ -1,0 +1,3 @@
+A4 - A1 mean diff = -0.0117
+two-sided paired bootstrap p = 0.0000
+n_resamples = 5000, seed = 0
