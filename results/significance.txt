@@ -1,0 +1,19 @@
+Cross-seed Welch's t-tests (two-sided), from results/runs.jsonl
+================================================================
+
+A2 (+MaskMix) vs A1 (baseline)
+  means: treat=0.9796 (n=3) ref=0.9888 (n=3)
+  diff = -0.0092, Welch t = -3.518, p = 0.0344, Cohen's d = -2.87
+
+A3 (+AttSup) vs A1 (baseline)
+  means: treat=0.9862 (n=3) ref=0.9888 (n=3)
+  diff = -0.0025, Welch t = -1.307, p = 0.2617, Cohen's d = -1.07
+
+A4 (ours) vs A1 (baseline)
+  means: treat=0.9787 (n=3) ref=0.9888 (n=3)
+  diff = -0.0100, Welch t = -4.723, p = 0.0102, Cohen's d = -3.86
+
+A5 (CutMix+AttSup) vs A4 (MaskMix+AttSup)
+  means: treat=0.9875 (n=3) ref=0.9787 (n=3)
+  diff = +0.0087, Welch t = +4.497, p = 0.0165, Cohen's d = +3.67
+

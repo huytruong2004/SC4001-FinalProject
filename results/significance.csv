@@ -1,0 +1,5 @@
+contrast,n_treat,n_ref,treat_mean,ref_mean,mean_diff,welch_t,welch_p,cohens_d
+A2 (+MaskMix) vs A1 (baseline),3,3,0.9796,0.9888,-0.0092,-3.518,0.0344,-2.873
+A3 (+AttSup) vs A1 (baseline),3,3,0.9862,0.9888,-0.0025,-1.307,0.2617,-1.067
+A4 (ours) vs A1 (baseline),3,3,0.9787,0.9888,-0.01,-4.723,0.0102,-3.857
+A5 (CutMix+AttSup) vs A4 (MaskMix+AttSup),3,3,0.9875,0.9787,0.0087,4.497,0.0165,3.671
